@@ -1,0 +1,17 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+
+# model caches (multi-GB, re-downloaded on demand)
+.cache/
+models/
+
+# macOS
+.DS_Store
+
+# local overrides
+config.local.toml

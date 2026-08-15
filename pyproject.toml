@@ -1,0 +1,28 @@
+[project]
+name = "nova"
+version = "0.1.0"
+description = "A fully local, Siri-like voice assistant for macOS"
+requires-python = ">=3.12"
+
+dependencies = [
+    # audio i/o
+    "sounddevice>=0.5.1",
+    "numpy>=2.1",
+    # wake word
+    "openwakeword>=0.6.0",
+    "onnxruntime>=1.20",
+    # speech to text (Apple Silicon GPU accelerated)
+    "mlx-whisper>=0.4.2",
+    # the brain
+    "ollama>=0.4.7",
+]
+
+[project.scripts]
+nova = "assistant.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["assistant"]

@@ -1,0 +1,53 @@
+# Nova — configuration. Every key here is optional; delete a line to fall back
+# to the default in assistant/config.py.
+
+name = "Nova"
+
+# AppleScript is a full scripting escape hatch: it lets Nova automate anything
+# on the Mac, but also lets the model run arbitrary code. Opt in knowingly.
+allow_applescript = false
+
+[wake]
+# "whisper"      — works with any wake phrase, including "hey nova". Costs
+#                  nothing while the room is quiet; transcribes only speech.
+# "openwakeword" — near-zero CPU always-on model, but it only knows the
+#                  phrases it ships: alexa, hey_mycroft, hey_jarvis,
+#                  hey_rhasspy. Set `model` below to one of those.
+backend = "whisper"
+phrase = "hey nova"
+model = "hey_jarvis"
+threshold = 0.5
+# Seconds to keep listening after answering, so follow-ups don't need the
+# wake word. Set to 0 to require it every time.
+follow_up_seconds = 8.0
+
+[audio]
+input_device = ""       # empty = system default; see `nova --devices`
+samplerate = 16000
+frame_ms = 80
+silence_ms = 900        # trailing silence that ends your turn
+max_utterance_ms = 15000
+min_utterance_ms = 400
+
+[stt]
+# Downloaded from Hugging Face on first run (~1.5 GB), then cached locally.
+# Swap for "mlx-community/whisper-small.en-mlx" if you want it lighter.
+model = "mlx-community/whisper-large-v3-turbo"
+language = "en"
+
+[llm]
+host = "http://127.0.0.1:11434"
+model = "qwen3:8b"
+temperature = 0.6
+context_tokens = 8192
+max_history_turns = 8
+think = false           # qwen3 reasoning; off keeps replies fast
+max_tool_iterations = 5
+
+[tts]
+enabled = true
+# Empty picks the best installed voice. For a much better one, download a
+# Premium voice: System Settings > Accessibility > Spoken Content >
+# System Voice > Manage Voices. Then set its exact name, e.g. "Ava (Premium)".
+voice = ""
+rate = 190              # words per minute
