@@ -55,7 +55,12 @@ def status(text: str, colour: str = DIM) -> None:
 class Assistant:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self.brain = Brain(cfg.llm, cfg.name, cfg.allow_applescript)
+        features = set()
+        if cfg.allow_applescript:
+            features.add("applescript")
+        if cfg.web.enabled:
+            features.add("web")
+        self.brain = Brain(cfg.llm, cfg.name, features)
         self.speaker = build_speaker(cfg.tts)
         prompt = vocab.bias_prompt(cfg.name) if cfg.stt.bias else None
         self.transcriber = Transcriber(cfg.stt, prompt=prompt)

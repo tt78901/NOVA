@@ -21,6 +21,12 @@ threshold = 0.5
 # wake word. Set to 0 to require it every time.
 follow_up_seconds = 8.0
 
+[web]
+# Web search is the ONE part of Nova that leaves this machine: the query has
+# to reach DuckDuckGo. Everything else — wake word, transcription, reasoning,
+# speech — stays local. Set false to keep it strictly offline.
+enabled = true
+
 [ui]
 # The HUD: a local page showing state, live mic level and the transcript.
 # Served on localhost only, over server-sent events.

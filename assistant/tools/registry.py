@@ -14,8 +14,9 @@ class Tool:
     parameters: dict[str, Any]
     fn: Callable[..., str]
     required: list[str] = field(default_factory=list)
-    # Gated tools only load when explicitly enabled in config.
-    gated: bool = False
+    # Name of a feature that must be enabled in config for this tool to be
+    # offered at all — "web", "applescript". Empty means always available.
+    requires: str = ""
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -39,7 +40,7 @@ def tool(
     description: str,
     parameters: dict[str, Any] | None = None,
     required: list[str] | None = None,
-    gated: bool = False,
+    requires: str = "",
 ):
     def decorator(fn: Callable[..., str]) -> Callable[..., str]:
         REGISTRY[fn.__name__] = Tool(
@@ -48,7 +49,7 @@ def tool(
             parameters=parameters or {},
             fn=fn,
             required=required or [],
-            gated=gated,
+            requires=requires,
         )
         return fn
 
@@ -93,15 +94,29 @@ def osascript(script: str, timeout: int = 20) -> str:
     return run(["osascript", "-e", script], timeout=timeout)
 
 
-def schemas(allow_gated: bool = False) -> list[dict[str, Any]]:
-    return [t.schema() for t in REGISTRY.values() if allow_gated or not t.gated]
+def quote_applescript(value: str) -> str:
+    """Wrap a Python string as an AppleScript string literal, safely."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
-def dispatch(name: str, arguments: dict[str, Any], allow_gated: bool = False) -> str:
+def schemas(features: set[str] | None = None) -> list[dict[str, Any]]:
+    features = features or set()
+    return [
+        t.schema()
+        for t in REGISTRY.values()
+        if not t.requires or t.requires in features
+    ]
+
+
+def dispatch(
+    name: str, arguments: dict[str, Any], features: set[str] | None = None
+) -> str:
+    features = features or set()
     entry = REGISTRY.get(name)
     if entry is None:
         return f"Error: no such tool `{name}`."
-    if entry.gated and not allow_gated:
+    if entry.requires and entry.requires not in features:
         return f"Error: `{name}` is disabled in config.toml."
     try:
         result = entry.fn(**(arguments or {}))

@@ -157,6 +157,31 @@ def set_wallpaper(path: str) -> str:
 The docstring-style description is what the model sees, so write it for a
 reader who has never seen the code.
 
+### Web search, and the one thing that leaves the machine
+
+Ask Nova anything she can't know — current events, prices, facts — and she
+searches DuckDuckGo and answers out loud. Say "show me" instead and she opens
+Safari and **types the query in on screen, character by character**, then hits
+Return.
+
+That live typing drives the real keyboard through System Events, so it needs
+Accessibility permission: System Settings → Privacy & Security → Accessibility,
+and enable your terminal app. Without it she falls back to loading the results
+page directly and tells you why.
+
+This is the only part of Nova that touches the network at request time — a
+search query has to reach the search engine. The wake word, transcription,
+reasoning and speech all stay on the machine. Turn it off entirely:
+
+```toml
+[web]
+enabled = false
+```
+
+Tools are gated by named feature, so a disabled capability isn't merely
+refused at call time — it's never shown to the model at all, and never appears
+in its capability list.
+
 ### AppleScript
 
 There's a `run_applescript` tool that hands the model arbitrary automation.
