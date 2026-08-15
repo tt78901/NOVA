@@ -10,7 +10,9 @@ from __future__ import annotations
 import shutil
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
+from ..audio.vocab import resolve_app
 from .registry import boolean, enum, integer, osascript, run, string, tool
 
 MEDIA_APPS = ["Music", "Spotify"]
@@ -37,10 +39,16 @@ def get_datetime() -> str:
     ["name"],
 )
 def open_app(name: str) -> str:
-    result = run(["open", "-a", name])
+    # The name arrives from a speech transcript, so it may be mangled.
+    resolved, corrected = resolve_app(name)
+    if resolved is None:
+        return f"There's no app installed that sounds like {name!r}."
+    result = run(["open", "-a", resolved])
     if result.startswith("Error"):
-        return f"Couldn't open {name}. {result}"
-    return f"Opened {name}."
+        return f"Couldn't open {resolved}. {result}"
+    if corrected:
+        return f"Opened {resolved} (heard {name!r})."
+    return f"Opened {resolved}."
 
 
 @tool(
@@ -49,10 +57,15 @@ def open_app(name: str) -> str:
     ["name"],
 )
 def quit_app(name: str) -> str:
-    result = osascript(f'tell application "{name}" to quit')
+    resolved, corrected = resolve_app(name)
+    if resolved is None:
+        return f"There's no app installed that sounds like {name!r}."
+    result = osascript(f'tell application "{resolved}" to quit')
     if result.startswith("Error"):
-        return f"Couldn't quit {name}. {result}"
-    return f"Quit {name}."
+        return f"Couldn't quit {resolved}. {result}"
+    if corrected:
+        return f"Quit {resolved} (heard {name!r})."
+    return f"Quit {resolved}."
 
 
 @tool("List the applications that are currently running and visible.")
@@ -119,6 +132,12 @@ def set_mute(muted: bool) -> str:
 # -- media ----------------------------------------------------------------
 
 
+def _quote(value: str) -> str:
+    """Wrap a Python string as an AppleScript string literal, safely."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def _active_player() -> str | None:
     for app in MEDIA_APPS:
         running = osascript(
@@ -130,7 +149,8 @@ def _active_player() -> str | None:
 
 
 @tool(
-    "Control music playback in Music or Spotify.",
+    "Pause, resume or skip audio that is already playing in Music or Spotify. "
+    "To *start* playing something by name, use play_music instead.",
     {
         "action": enum(
             "What to do.", ["play", "pause", "playpause", "next", "previous"]
@@ -141,7 +161,10 @@ def _active_player() -> str | None:
 def media_control(action: str) -> str:
     app = _active_player()
     if app is None:
-        return "Neither Music nor Spotify is running."
+        return (
+            "Neither Music nor Spotify is running, so there is nothing to "
+            "control. Use play_music to start playback."
+        )
     commands = {
         "play": "play",
         "pause": "pause",
@@ -156,6 +179,147 @@ def media_control(action: str) -> str:
     if result.startswith("Error"):
         return result
     return f"{action.capitalize()} in {app}."
+
+
+@tool(
+    "Start playing music in Apple Music. Use this to play a specific song, "
+    "artist, album or playlist by name — it searches the user's library and "
+    "starts playback. Leave `query` empty to shuffle the whole library. This "
+    "is the tool for 'play something'; media_control only pauses or skips.",
+    {
+        "query": string(
+            "Name of the song, artist, album or playlist. Empty to shuffle."
+        ),
+        "kind": enum(
+            "What the query names.", ["song", "artist", "album", "playlist"]
+        ),
+    },
+)
+def play_music(query: str = "", kind: str = "song") -> str:
+    query = query.strip()
+
+    if not query:
+        script = (
+            'tell application "Music"\n'
+            "  if not running then launch\n"
+            "  set shuffle enabled to true\n"
+            "  play library playlist 1\n"
+            '  return (name of current track) & " by " & (artist of current track)\n'
+            "end tell"
+        )
+        result = osascript(script, timeout=30)
+        if result.startswith("Error"):
+            return result
+        return f"Shuffling your library — {result}."
+
+    q = _quote(query)
+    if kind == "playlist":
+        script = (
+            'tell application "Music"\n'
+            "  if not running then launch\n"
+            f"  set matches to (every playlist whose name contains {q})\n"
+            '  if (count of matches) is 0 then return "NOTFOUND"\n'
+            "  play (item 1 of matches)\n"
+            "  return name of (item 1 of matches)\n"
+            "end tell"
+        )
+    else:
+        field = {"artist": "artist", "album": "album"}.get(kind, "name")
+        script = (
+            'tell application "Music"\n'
+            "  if not running then launch\n"
+            "  set lib to library playlist 1\n"
+            # Music's own search verb looks across title, artist and album,
+            # and handles partial words better than a `whose` filter.
+            f"  set matches to (search lib for {q})\n"
+            "  if (count of matches) is 0 then\n"
+            f"    set matches to (every track of lib whose {field} contains {q})\n"
+            "  end if\n"
+            '  if (count of matches) is 0 then return "NOTFOUND"\n'
+            "  play (item 1 of matches)\n"
+            '  return (name of current track) & " by " & (artist of current track)\n'
+            "end tell"
+        )
+
+    result = osascript(script, timeout=30)
+    if result.startswith("Error"):
+        return result
+    if result.strip() == "NOTFOUND":
+        return (
+            f"There's nothing matching {query!r} in the Music library. "
+            "AppleScript can only play tracks already added to the library, "
+            "not the streaming catalogue — the user needs to add it in Music "
+            "first, or search the catalogue by hand."
+        )
+    if kind == "playlist":
+        return f"Playing the playlist {result}."
+    return f"Playing {result}."
+
+
+@tool(
+    "Search the user's Music library for songs and list what was found, "
+    "without playing anything. Use this when the user asks to search, find, "
+    "or look for music, or wants to know what they have by an artist. To "
+    "play a result afterwards, call play_music with the exact track name.",
+    {
+        "query": string("Song, artist or album to search for."),
+        "limit": integer("Maximum results to list, default 8."),
+    },
+    ["query"],
+)
+def search_music(query: str, limit: int = 8) -> str:
+    query = query.strip()
+    if not query:
+        return "Nothing to search for."
+    limit = max(1, min(25, int(limit)))
+    script = (
+        'tell application "Music"\n'
+        "  if not running then launch\n"
+        f"  set matches to (search library playlist 1 for {_quote(query)})\n"
+        '  if (count of matches) is 0 then return "NOTFOUND"\n'
+        '  set out to ""\n'
+        "  repeat with i from 1 to (count of matches)\n"
+        f"    if i > {limit} then exit repeat\n"
+        "    set t to item i of matches\n"
+        '    set out to out & (name of t) & " by " & (artist of t) & linefeed\n'
+        "  end repeat\n"
+        "  return (count of matches) & \"|\" & out\n"
+        "end tell"
+    )
+    result = osascript(script, timeout=45)
+    if result.startswith("Error"):
+        return result
+    if result.strip() == "NOTFOUND":
+        return (
+            f"Nothing in the Music library matches {query!r}. The library only "
+            "contains tracks already added — use open_music_search to look in "
+            "the Apple Music catalogue instead."
+        )
+    total, _, listing = result.partition("|")
+    tracks = [line for line in listing.splitlines() if line.strip()]
+    header = f"{total.strip()} match(es) in the library"
+    if len(tracks) < int(total.strip() or 0):
+        header += f", first {len(tracks)}"
+    return header + ":\n" + "\n".join(tracks)
+
+
+@tool(
+    "Open the Apple Music catalogue search for a query in the Music app. Use "
+    "this when a song is not in the user's library, since the streaming "
+    "catalogue cannot be searched or played by script — this shows the "
+    "results on screen for the user to pick from.",
+    {"query": string("What to search the Apple Music catalogue for.")},
+    ["query"],
+)
+def open_music_search(query: str) -> str:
+    query = query.strip()
+    if not query:
+        return "Nothing to search for."
+    term = quote(query, safe="")
+    result = run(["open", f"music://music.apple.com/search?term={term}"])
+    if result.startswith("Error"):
+        return result
+    return f"Showing Apple Music results for {query} in the Music app."
 
 
 @tool("Get the track currently playing in Music or Spotify.")
