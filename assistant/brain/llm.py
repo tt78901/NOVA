@@ -76,10 +76,13 @@ def ensure_server(host: str, wait: float = 20.0) -> tuple[bool, str]:
 
 
 class Brain:
-    def __init__(self, cfg: LlmConfig, name: str, allow_applescript: bool = False):
+    def __init__(
+        self, cfg: LlmConfig, name: str, features: set[str] | None = None
+    ):
         self.cfg = cfg
         self.name = name
-        self.allow_gated = allow_applescript
+        # Optional capabilities enabled in config: "web", "applescript".
+        self.features = features or set()
         self.client = Client(host=cfg.host)
         self.messages: list[dict[str, Any]] = []
         self._supports_think = cfg.think
@@ -129,10 +132,10 @@ class Brain:
         self.messages.append({"role": "user", "content": text})
         self._trim()
 
-        tools = registry.schemas(allow_gated=self.allow_gated)
+        tools = registry.schemas(self.features)
         system = {
             "role": "system",
-            "content": system_prompt(self.name, self.allow_gated),
+            "content": system_prompt(self.name, self.features),
         }
 
         for _ in range(self.cfg.max_tool_iterations):
@@ -173,7 +176,7 @@ class Brain:
             for call in calls:
                 name = call.function.name
                 args = dict(call.function.arguments or {})
-                result = registry.dispatch(name, args, allow_gated=self.allow_gated)
+                result = registry.dispatch(name, args, self.features)
                 if self.on_tool is not None:
                     self.on_tool(name, result)
                 self.messages.append(

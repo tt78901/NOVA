@@ -13,7 +13,16 @@ from pathlib import Path
 from urllib.parse import quote
 
 from ..audio.vocab import resolve_app
-from .registry import boolean, enum, integer, osascript, run, string, tool
+from .registry import (
+    boolean,
+    enum,
+    integer,
+    osascript,
+    quote_applescript as _quote,
+    run,
+    string,
+    tool,
+)
 
 MEDIA_APPS = ["Music", "Spotify"]
 
@@ -130,12 +139,6 @@ def set_mute(muted: bool) -> str:
 
 
 # -- media ----------------------------------------------------------------
-
-
-def _quote(value: str) -> str:
-    """Wrap a Python string as an AppleScript string literal, safely."""
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
 
 
 def _active_player() -> str | None:
@@ -460,7 +463,7 @@ def sleep_display() -> str:
     "dedicated tool for. Return a short string from the script.",
     {"script": string("The AppleScript source to execute.")},
     ["script"],
-    gated=True,
+    requires="applescript",
 )
 def run_applescript(script: str) -> str:
     return osascript(script, timeout=45) or "Done."

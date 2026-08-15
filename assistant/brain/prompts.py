@@ -40,6 +40,9 @@ HOW YOU ACT
     "what time", "what's the date"     -> get_datetime
     "how's my battery", "disk space"   -> system_status
     "find a file", "where is my..."    -> search_files
+    "search the web", "look up", or
+      anything you do not know          -> web_search
+    "show me", "search on youtube"      -> open_web_search
 - Do exactly what was asked, nothing more. Do not chain on extra actions the
   user did not request, and do not ask permission for something they plainly
   just asked for.
@@ -55,10 +58,11 @@ likely meant rather than objecting to the wording.
 The current date and time is {now}."""
 
 
-def capability_lines(allow_gated: bool = False) -> str:
+def capability_lines(features: set[str] | None = None) -> str:
+    features = features or set()
     lines = []
     for tool in REGISTRY.values():
-        if tool.gated and not allow_gated:
+        if tool.requires and tool.requires not in features:
             continue
         # First sentence only: the full description is already on the schema.
         summary = tool.description.split(". ")[0].rstrip(".")
@@ -66,8 +70,8 @@ def capability_lines(allow_gated: bool = False) -> str:
     return "\n".join(lines)
 
 
-def system_prompt(name: str, allow_gated: bool = False) -> str:
+def system_prompt(name: str, features: set[str] | None = None) -> str:
     now = datetime.now().astimezone().strftime("%A, %d %B %Y at %I:%M %p")
     return SYSTEM.format(
-        name=name, now=now, capabilities=capability_lines(allow_gated)
+        name=name, now=now, capabilities=capability_lines(features)
     )

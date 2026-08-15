@@ -326,8 +326,29 @@
     return b;
   }
 
-  let streaming = null, caret = null;
+  /* Typewriter reveal. The model emits ragged multi-character chunks; this
+     buffers them and lets them out at a steady rate so the text types itself
+     out. The rate scales with the backlog, so it never falls behind speech. */
+  let streaming = null, caret = null, pending = "", typer = null;
+
+  function startTyping() {
+    if (typer) return;
+    typer = setInterval(() => {
+      if (!pending || !caret) {
+        clearInterval(typer); typer = null; return;
+      }
+      const n = Math.max(1, Math.ceil(pending.length / 14));
+      caret.insertAdjacentText("beforebegin", pending.slice(0, n));
+      pending = pending.slice(n);
+    }, 24);
+  }
+
   function endStream() {
+    if (typer) { clearInterval(typer); typer = null; }
+    if (pending && caret) {
+      caret.insertAdjacentText("beforebegin", pending);  // flush the tail
+    }
+    pending = "";
     if (caret) { caret.remove(); caret = null; }
     streaming = null;
   }
@@ -360,7 +381,8 @@
           // Text is inserted before the caret, so it trails the reply.
           streaming.append(caret);
         }
-        caret.insertAdjacentText("beforebegin", m.text);
+        pending += m.text;
+        startTyping();
         break;
       case "tool":
         toolCount++; $("tools").textContent = toolCount;

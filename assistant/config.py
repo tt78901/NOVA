@@ -70,6 +70,13 @@ class TtsConfig:
 
 
 @dataclass
+class WebConfig:
+    # The one part of Nova that leaves the machine: a search query has to
+    # reach DuckDuckGo. Turn this off to stay strictly local.
+    enabled: bool = True
+
+
+@dataclass
 class UiConfig:
     enabled: bool = True
     port: int = 7788
@@ -88,6 +95,7 @@ class Config:
     llm: LlmConfig = field(default_factory=LlmConfig)
     tts: TtsConfig = field(default_factory=TtsConfig)
     ui: UiConfig = field(default_factory=UiConfig)
+    web: WebConfig = field(default_factory=WebConfig)
 
 
 def _merge(obj: Any, data: dict[str, Any], path: str = "") -> None:
