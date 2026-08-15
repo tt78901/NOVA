@@ -20,7 +20,7 @@ Four local stages, each swappable in `config.toml`:
 | Wake word | Whisper `tiny.en`, behind an energy gate | Any phrase you like, including a custom name |
 | Speech to text | `whisper-large-v3-turbo` via **mlx-whisper** | Runs on the Apple Silicon GPU |
 | Reasoning | **qwen3:8b** through **Ollama** | Streamed, with tool calling |
-| Speech | macOS `say` | Speaks sentence by sentence as tokens arrive |
+| Speech | **Kokoro 82M** via **mlx-audio** | Neural, on the GPU, ~30× faster than real time |
 
 The pipeline is built around latency. Audio comes off one shared microphone
 stream, silence never reaches a model, and Nova starts speaking the first
@@ -47,6 +47,23 @@ Switch in `config.toml`:
 backend = "openwakeword"
 model = "hey_jarvis"
 ```
+
+### Hearing commands correctly
+
+Whisper is a general model, so it guesses at proper nouns: "open Xcode" comes
+back as "open exit code". Nova defends at two layers.
+
+Before transcription, it primes Whisper with the vocabulary it expects on
+*this* Mac — the wake word, the command grammar, and the names of your
+installed apps — so those words are spelled right in the first place. Turn it
+off with `bias = false` under `[stt]`.
+
+After transcription, app names are matched against what's actually installed,
+on a letters-only form, so `"exit code"` → `Xcode` and `"note s"` → `Notes`.
+The fuzzy pass ignores app names shorter than five characters, because those
+collide by accident — `"chrome"` scores 0.8 against `Home`, and opening the
+wrong app is worse than saying it couldn't find one. If nothing plausible
+matches, Nova says so instead of launching a guess.
 
 ## Setup
 
@@ -75,10 +92,52 @@ apps will also trigger a one-time Automation prompt.
 | `--quiet` | Print the reply instead of speaking it |
 | `--devices` | List microphones |
 | `--voices` | List speech voices and show the auto-selected one |
+| `--ui-only` | Serve the HUD alone, no models loaded |
+| `--no-ui` | Run headless |
 
-A much better voice is one download away: System Settings → Accessibility →
-Spoken Content → System Voice → Manage Voices. Grab a Premium voice, then set
-`voice = "Ava (Premium)"` in `config.toml`.
+### The voice
+
+Nova speaks through **Kokoro**, an 82M-parameter neural TTS running on the
+Apple Silicon GPU via mlx-audio. Warm, it synthesises a sentence in about
+0.2 s — roughly thirty times faster than real time — which is what makes
+sentence-by-sentence streaming feel immediate rather than stuttery.
+
+Voices are named `<accent><gender>_<name>`, `a` for American and `b` for
+British. Set one in `[tts]`:
+
+```toml
+[tts]
+backend = "kokoro"
+voice = "bm_george"   # af_heart af_nova am_michael am_puck bf_emma bm_fable …
+speed = 1.0
+```
+
+The macOS synthesiser is still there as `backend = "say"` — no download, but a
+noticeably older generation of synthesis. Kokoro falls back to it automatically
+if mlx-audio is missing.
+
+## The HUD
+
+Nova serves a local status display at `http://127.0.0.1:7788`, opened
+automatically on launch. Concentric rings around a reactive core, a live mic
+level, the current state, and a running transcript with tool calls as they
+fire. The accent colour tracks state: cyan idle and listening, amber while
+thinking, green while speaking, red on error.
+
+It's plain HTML with no build step and no dependencies — a threaded
+`http.server` serves one page and pushes state over server-sent events. SSE is
+one-directional, which is all a display needs, and it avoids a websocket
+stack. The bus never blocks: if a tab stops reading, its queue fills and events
+drop for that client alone, because a slow HUD must never stall speech
+recognition.
+
+Preview the design on its own, with no models and no microphone:
+
+```bash
+.venv/bin/python -m assistant --ui-only
+```
+
+Disable it with `--no-ui`, or `enabled = false` under `[ui]`.
 
 ## What it can do
 

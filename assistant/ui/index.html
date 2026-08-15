@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOVA</title>
+<style>
+  :root {
+    --bg: #02050a;
+    --accent: #57d9ff;
+    --accent-2: #1b7fa8;
+    --soft: rgba(87, 217, 255, 0.20);
+    --faint: rgba(87, 217, 255, 0.07);
+    --gold: #ffc46b;
+    --text: #d5ecf7;
+    --muted: rgba(213, 236, 247, 0.38);
+  }
+  body.thinking { --accent: #ffc46b; --accent-2: #a8761b; --soft: rgba(255,196,107,.2); --faint: rgba(255,196,107,.07); }
+  body.speaking { --accent: #7dffcd; --accent-2: #1ba87c; --soft: rgba(125,255,205,.2); --faint: rgba(125,255,205,.07); }
+  body.error    { --accent: #ff7a7a; --accent-2: #a83b3b; --soft: rgba(255,122,122,.2); --faint: rgba(255,122,122,.07); }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 400 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .1em;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(190px, 15%) 1fr minmax(190px, 15%);
+    grid-template-rows: 1fr auto;
+    gap: 0;
+    transition: --accent 500ms linear;
+  }
+
+  /* ---------- atmosphere ---------- */
+  .fx { position: fixed; inset: 0; pointer-events: none; }
+  .fx-grid {
+    z-index: 1;
+    background:
+      linear-gradient(var(--faint) 1px, transparent 1px) 0 0 / 100% 52px,
+      linear-gradient(90deg, var(--faint) 1px, transparent 1px) 0 0 / 52px 100%;
+    mask-image: radial-gradient(ellipse at center, #000 20%, transparent 78%);
+  }
+  .fx-vignette {
+    z-index: 2;
+    background: radial-gradient(ellipse at center, transparent 38%, rgba(0,0,0,.78) 88%);
+  }
+  .fx-scan {
+    z-index: 3;
+    background: repeating-linear-gradient(
+      to bottom, rgba(255,255,255,.028) 0 1px, transparent 1px 3px);
+  }
+  /* a slow bright sweep down the whole display */
+  .fx-sweep {
+    z-index: 4;
+    background: linear-gradient(to bottom,
+      transparent 0%, var(--soft) 46%, rgba(255,255,255,.10) 50%, var(--soft) 54%, transparent 100%);
+    height: 34vh; top: -34vh;
+    animation: sweep 9s cubic-bezier(.5,0,.5,1) infinite;
+    opacity: .5;
+  }
+  @keyframes sweep { 0% { transform: translateY(0); } 100% { transform: translateY(140vh); } }
+
+  /* ---------- panels ---------- */
+  .panel { position: relative; z-index: 5; padding: 22px 18px; display: flex; flex-direction: column; gap: 18px; }
+  .panel.left  { border-right: 1px solid var(--faint); }
+  .panel.right { border-left: 1px solid var(--faint); text-align: right; }
+
+  .block { display: grid; gap: 5px; }
+  .k { font-size: 9px; letter-spacing: .3em; color: var(--muted); text-transform: uppercase; }
+  .v { font-size: 14px; letter-spacing: .16em; color: var(--accent); text-transform: uppercase;
+       text-shadow: 0 0 14px var(--soft); transition: color 500ms ease; }
+  .v.sm { font-size: 11px; letter-spacing: .1em; color: var(--text); text-transform: none; }
+
+  .rule { height: 1px; background: linear-gradient(to right, var(--soft), transparent); }
+  .panel.right .rule { background: linear-gradient(to left, var(--soft), transparent); }
+
+  /* level meter */
+  .meter { display: flex; gap: 3px; height: 26px; align-items: flex-end; }
+  .panel.right .meter { justify-content: flex-end; }
+  .meter i { flex: 1; max-width: 7px; background: var(--accent); opacity: .18;
+             height: 100%; transform-origin: bottom; transform: scaleY(.12);
+             transition: transform 90ms linear, opacity 90ms linear; }
+
+  /* ---------- reactor ---------- */
+  .stage { position: relative; z-index: 5; display: grid; place-items: center; }
+  .reactor { position: relative; width: min(66vh, 46vw); aspect-ratio: 1; }
+  .reactor svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+
+  .ring { fill: none; stroke: var(--accent); transition: stroke 500ms ease; }
+  .halo { filter: drop-shadow(0 0 10px var(--soft)); }
+  .s1 { animation: spin 60s linear infinite; transform-origin: 50% 50%; }
+  .s2 { animation: spin 26s linear infinite reverse; transform-origin: 50% 50%; }
+  .s3 { animation: spin 12s linear infinite; transform-origin: 50% 50%; }
+  .s4 { animation: spin 34s linear infinite reverse; transform-origin: 50% 50%; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #ticks line, #bars line { stroke: var(--accent); stroke-linecap: round; }
+  #radar { transform-origin: 50% 50%; animation: spin 4.5s linear infinite; }
+
+  .core {
+    position: absolute; inset: 0; margin: auto;
+    width: 17%; aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle, #fff 0%, var(--accent) 34%, var(--soft) 62%, transparent 76%);
+    box-shadow: 0 0 60px var(--soft), 0 0 130px var(--soft);
+    transition: background 500ms ease, box-shadow 500ms ease;
+  }
+  .halo-outer {
+    position: absolute; inset: 0; margin: auto;
+    width: 56%; aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle, var(--soft) 0%, transparent 66%);
+    animation: breathe 5s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100% { opacity:.55; transform: scale(1); } 50% { opacity:.95; transform: scale(1.07); } }
+
+  .caption {
+    position: absolute; left: 0; right: 0; bottom: -7%;
+    text-align: center; font-size: 11px; letter-spacing: .42em;
+    color: var(--accent); text-transform: uppercase; text-shadow: 0 0 16px var(--soft);
+  }
+  .caption::before, .caption::after { content: "— "; opacity: .45; }
+  .caption::after { content: " —"; }
+
+  /* ---------- transcript ---------- */
+  footer {
+    grid-column: 1 / -1; position: relative; z-index: 5;
+    border-top: 1px solid var(--faint);
+    padding: 14px 26px 20px;
+    height: 27vh; display: flex; flex-direction: column; justify-content: flex-end;
+    background: linear-gradient(to top, rgba(0,0,0,.55), transparent);
+  }
+  #log { display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; overflow: hidden; }
+  .line { display: grid; grid-template-columns: 66px 1fr; gap: 16px; animation: rise 340ms cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .who { font-size: 9px; letter-spacing: .26em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+  .what { letter-spacing: .05em; word-break: break-word; font-size: 13px; }
+  .line.user .what { color: #fff; }
+  .line.nova .what { color: var(--accent); text-shadow: 0 0 18px var(--soft); }
+  .line.tool .what { color: var(--muted); font-size: 11px; }
+  .line.tool .who  { color: rgba(255,196,107,.65); }
+  .cursor { display: inline-block; width: 7px; height: 13px; background: var(--accent);
+            vertical-align: -2px; margin-left: 3px; animation: blink .9s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* corner brackets */
+  .corner { position: fixed; width: 22px; height: 22px; border: 1px solid var(--soft); z-index: 6; }
+  .tl { top:10px; left:10px; border-right:0; border-bottom:0; }
+  .tr { top:10px; right:10px; border-left:0; border-bottom:0; }
+  .bl { bottom:10px; left:10px; border-right:0; border-top:0; }
+  .br { bottom:10px; right:10px; border-left:0; border-top:0; }
+
+  /* boot */
+  body.booting .panel, body.booting footer { opacity: 0; }
+  .panel, footer { transition: opacity 700ms ease 250ms; }
+  body.booting .reactor { transform: scale(.86); opacity: .25; }
+  .reactor { transition: transform 1100ms cubic-bezier(.2,.8,.2,1), opacity 900ms ease; }
+
+  @media (max-width: 900px) {
+    body { grid-template-columns: 1fr; }
+    .panel { display: none; }
+  }
+</style>
+</head>
+<body class="idle booting">
+  <div class="fx fx-grid"></div>
+  <div class="fx fx-vignette"></div>
+  <div class="fx fx-scan"></div>
+  <div class="fx fx-sweep"></div>
+  <span class="corner tl"></span><span class="corner tr"></span>
+  <span class="corner bl"></span><span class="corner br"></span>
+
+  <aside class="panel left">
+    <div class="block"><div class="k">Status</div><div class="v" id="state">Idle</div></div>
+    <div class="rule"></div>
+    <div class="block"><div class="k">Input Level</div><div class="meter" id="meter"></div></div>
+    <div class="rule"></div>
+    <div class="block"><div class="k">Uptime</div><div class="v sm" id="uptime">00:00:00</div></div>
+    <div class="block"><div class="k">Actions Run</div><div class="v sm" id="tools">0</div></div>
+    <div class="block"><div class="k">Exchanges</div><div class="v sm" id="turns">0</div></div>
+  </aside>
+
+  <main class="stage">
+    <div class="reactor">
+      <svg viewBox="0 0 400 400" aria-hidden="true">
+        <defs>
+          <radialGradient id="sweepGrad">
+            <stop offset="0%" stop-color="var(--accent)" stop-opacity="0"/>
+            <stop offset="100%" stop-color="var(--accent)" stop-opacity=".28"/>
+          </radialGradient>
+        </defs>
+
+        <circle class="ring s1" cx="200" cy="200" r="192" stroke-width="1"
+                stroke-dasharray="1 9" opacity=".45"/>
+        <g id="ticks" class="s1"></g>
+        <circle class="ring s2 halo" cx="200" cy="200" r="168" stroke-width="2.5"
+                stroke-dasharray="120 30 56 30" opacity=".8"/>
+        <circle class="ring" cx="200" cy="200" r="152" stroke-width="1" opacity=".18"/>
+        <g id="radar">
+          <path d="M200 200 L200 48 A152 152 0 0 1 307 92 Z" fill="url(#sweepGrad)"/>
+        </g>
+        <circle class="ring s3 halo" cx="200" cy="200" r="138" stroke-width="3"
+                stroke-dasharray="10 424" stroke-linecap="round"/>
+        <circle class="ring s4" cx="200" cy="200" r="126" stroke-width="1"
+                stroke-dasharray="2 6" opacity=".5"/>
+        <circle class="ring" cx="200" cy="200" r="96" stroke-width="1" opacity=".28"/>
+        <g id="bars"></g>
+      </svg>
+      <div class="halo-outer"></div>
+      <div class="core" id="core"></div>
+      <div class="caption" id="caption">standing by</div>
+    </div>
+  </main>
+
+  <aside class="panel right">
+    <div class="block"><div class="k">Unit</div><div class="v" id="name">NOVA</div></div>
+    <div class="rule"></div>
+    <div class="block"><div class="k">Local Core</div><div class="v sm" id="model">—</div></div>
+    <div class="block"><div class="k">Wake Phrase</div><div class="v sm" id="wake">—</div></div>
+    <div class="block"><div class="k">Link</div><div class="v sm" id="link">offline</div></div>
+    <div class="rule"></div>
+    <div class="block"><div class="k">Last Action</div><div class="v sm" id="lastTool">—</div></div>
+  </aside>
+
+  <footer><div id="log"></div></footer>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const svgNS = "http://www.w3.org/2000/svg";
+
+  /* ---- build the radial elements ---- */
+  const BARS = 96, R_IN = 100, R_MAX = 30;
+  const bars = [];
+  for (let i = 0; i < BARS; i++) {
+    const a = (i / BARS) * Math.PI * 2 - Math.PI / 2;
+    const el = document.createElementNS(svgNS, "line");
+    el.setAttribute("stroke-width", "2.2");
+    el.setAttribute("opacity", ".8");
+    $("bars").appendChild(el);
+    bars.push({ el, cos: Math.cos(a), sin: Math.sin(a), phase: Math.random() * 6.283 });
+  }
+  // outer graduated ticks, longer every fifth
+  for (let i = 0; i < 60; i++) {
+    const a = (i / 60) * Math.PI * 2, long = i % 5 === 0;
+    const c = Math.cos(a), s = Math.sin(a);
+    const el = document.createElementNS(svgNS, "line");
+    el.setAttribute("x1", (200 + c * 178).toFixed(1));
+    el.setAttribute("y1", (200 + s * 178).toFixed(1));
+    el.setAttribute("x2", (200 + c * (long ? 188 : 183)).toFixed(1));
+    el.setAttribute("y2", (200 + s * (long ? 188 : 183)).toFixed(1));
+    el.setAttribute("stroke-width", long ? "2" : "1");
+    el.setAttribute("opacity", long ? ".7" : ".3");
+    $("ticks").appendChild(el);
+  }
+  // level meter bars
+  const meter = [];
+  for (let i = 0; i < 14; i++) {
+    const b = document.createElement("i");
+    $("meter").appendChild(b);
+    meter.push(b);
+  }
+
+  /* ---- animation ---- */
+  let level = 0, target = 0, t = 0;
+  function frame() {
+    t += 0.016;
+    level += (target - level) * 0.2;
+    target *= 0.93;
+
+    const core = $("core");
+    core.style.transform = `scale(${1 + level * 0.9})`;
+
+    for (let i = 0; i < bars.length; i++) {
+      const b = bars[i];
+      const idle = 0.09 + 0.045 * Math.sin(t * 1.5 + b.phase);
+      const len = R_MAX * (idle + level * (0.6 + 0.4 * Math.sin(t * 6 + b.phase)));
+      const x1 = 200 + b.cos * R_IN, y1 = 200 + b.sin * R_IN;
+      b.el.setAttribute("x1", x1.toFixed(1));
+      b.el.setAttribute("y1", y1.toFixed(1));
+      b.el.setAttribute("x2", (x1 + b.cos * len).toFixed(1));
+      b.el.setAttribute("y2", (y1 + b.sin * len).toFixed(1));
+    }
+    for (let i = 0; i < meter.length; i++) {
+      const lit = level * meter.length;
+      const on = i < lit;
+      meter[i].style.transform = `scaleY(${on ? Math.min(1, 0.2 + (lit - i) * 0.7) : 0.12})`;
+      meter[i].style.opacity = on ? "1" : ".18";
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  /* ---- telemetry (all real, no invented numbers) ---- */
+  const started = Date.now();
+  let toolCount = 0, turnCount = 0;
+  setInterval(() => {
+    const s = Math.floor((Date.now() - started) / 1000);
+    const p = (n) => String(n).padStart(2, "0");
+    $("uptime").textContent = `${p(s / 3600 | 0)}:${p((s / 60 | 0) % 60)}:${p(s % 60)}`;
+  }, 1000);
+
+  const CAPTIONS = { idle: "standing by", listening: "listening",
+                     thinking: "processing", speaking: "responding" };
+  function setState(v) {
+    document.body.classList.remove("idle","listening","thinking","speaking","error");
+    document.body.classList.add(v);
+    $("state").textContent = v;
+    $("caption").textContent = CAPTIONS[v] || v;
+  }
+
+  /* ---- transcript ---- */
+  const log = $("log");
+  function addLine(who, what, kind) {
+    const row = document.createElement("div");
+    row.className = "line " + kind;
+    const a = document.createElement("div"); a.className = "who"; a.textContent = who;
+    const b = document.createElement("div"); b.className = "what"; b.textContent = what;
+    row.append(a, b);
+    log.append(row);
+    while (log.children.length > 7) log.firstChild.remove();
+    return b;
+  }
+
+  let streaming = null, caret = null;
+  function endStream() {
+    if (caret) { caret.remove(); caret = null; }
+    streaming = null;
+  }
+
+  /* ---- event link ---- */
+  const source = new EventSource("/events");
+  source.onopen  = () => { $("link").textContent = "linked"; };
+  source.onerror = () => { $("link").textContent = "reconnecting…"; };
+
+  source.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    switch (m.type) {
+      case "state":
+        setState(m.value);
+        if (m.value !== "speaking") endStream();
+        break;
+      case "level":
+        target = Math.min(1, Math.max(target, m.value));
+        break;
+      case "user":
+        endStream();
+        turnCount++; $("turns").textContent = turnCount;
+        addLine("you", m.text, "user");
+        break;
+      case "delta":
+        if (!streaming) {
+          streaming = addLine(m.name || "nova", "", "nova");
+          caret = document.createElement("span");
+          caret.className = "cursor";
+          // Text is inserted before the caret, so it trails the reply.
+          streaming.append(caret);
+        }
+        caret.insertAdjacentText("beforebegin", m.text);
+        break;
+      case "tool":
+        toolCount++; $("tools").textContent = toolCount;
+        $("lastTool").textContent = m.name;
+        addLine("action", m.name + " → " + m.result, "tool");
+        break;
+      case "info":
+        $("name").textContent = m.name.toUpperCase();
+        $("model").textContent = m.model;
+        $("wake").textContent = "“" + m.wake + "”";
+        break;
+      case "error":
+        setState("error");
+        addLine("error", m.text, "tool");
+        break;
+    }
+  };
+
+  requestAnimationFrame(() => document.body.classList.remove("booting"));
+})();
+</script>
+</body>
+</html>

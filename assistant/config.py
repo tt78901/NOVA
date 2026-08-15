@@ -36,6 +36,9 @@ class AudioConfig:
 class SttConfig:
     model: str = "mlx-community/whisper-large-v3-turbo"
     language: str = "en"
+    # Prime Whisper with the wake word, command grammar and installed app
+    # names so it spells them right instead of guessing.
+    bias: bool = True
 
 
 @dataclass
@@ -51,9 +54,26 @@ class LlmConfig:
 
 @dataclass
 class TtsConfig:
-    voice: str = ""  # empty = auto-pick the best installed voice
-    rate: int = 190  # words per minute
+    backend: str = "kokoro"  # "kokoro" (neural) | "say" (macOS built-in)
+    voice: str = ""  # kokoro: af_heart etc. say: empty auto-picks
     enabled: bool = True
+    # kokoro only
+    model: str = "mlx-community/Kokoro-82M-bf16"
+    speed: float = 1.0
+    # say only
+    rate: int = 190  # words per minute
+    # Embedded speech-synthesis commands, 0-127 each. Only the classic voices
+    # (Daniel, Alex, Fred…) respond to these; the neural Premium ones ignore
+    # them. pitch: lower is deeper. modulation: 0 is a flat monotone.
+    pitch: int = 0  # 0 = leave the voice alone
+    modulation: int = -1  # -1 = leave the voice alone
+
+
+@dataclass
+class UiConfig:
+    enabled: bool = True
+    port: int = 7788
+    open_browser: bool = True
 
 
 @dataclass
@@ -67,6 +87,7 @@ class Config:
     stt: SttConfig = field(default_factory=SttConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
     tts: TtsConfig = field(default_factory=TtsConfig)
+    ui: UiConfig = field(default_factory=UiConfig)
 
 
 def _merge(obj: Any, data: dict[str, Any], path: str = "") -> None:

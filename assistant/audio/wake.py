@@ -51,7 +51,11 @@ class WhisperWake:
         self.cfg = wake
         self.phrase_tokens = normalise(wake.phrase)
         self.name_token = self.phrase_tokens[-1] if self.phrase_tokens else ""
-        self.transcriber = Transcriber(stt, model=WAKE_STT_MODEL)
+        # Prime the tiny model with just the phrase. Kept minimal on purpose:
+        # a longer hint here would make real commands look like prompt echo.
+        self.transcriber = Transcriber(
+            stt, model=WAKE_STT_MODEL, prompt=f"{wake.phrase.title()}."
+        )
         # Short segments: we only need enough to catch "hey nova ...".
         self.endpointer = Endpointer(
             samplerate=audio.samplerate,

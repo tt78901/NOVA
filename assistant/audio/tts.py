@@ -1,8 +1,18 @@
-"""Text to speech through macOS's built-in `say`.
+"""Text to speech.
 
-Speech is queued sentence by sentence rather than waiting for the full reply.
-Combined with a streaming LLM, that means Nova starts talking about as soon as
-the first sentence exists instead of after the last token.
+Two backends behind one interface:
+
+kokoro
+    An 82M-parameter neural model on the Apple Silicon GPU, via mlx-audio.
+    Synthesises about thirty times faster than real time once warm, so a
+    sentence is ready in well under a tenth of a second.
+
+say
+    macOS's built-in synthesiser. No download and no dependencies, but it is
+    an older generation of synthesis and sounds it.
+
+Either way speech is queued sentence by sentence rather than waiting for the
+whole reply, so Nova starts talking as soon as the first sentence exists.
 """
 
 from __future__ import annotations
@@ -34,6 +44,9 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n{2,}")
 # Strip things that sound wrong read aloud: code fences, markdown emphasis.
 _CODE_FENCE = re.compile(r"```.*?```", re.S)
 _MARKDOWN = re.compile(r"[*_`#>]+")
+# `say` treats [[...]] as inline synthesiser commands. Model output must never
+# be able to smuggle those in, so they're stripped from anything we speak.
+_SPEECH_COMMAND = re.compile(r"\[\[|\]\]")
 
 
 def available_voices() -> list[str]:
@@ -65,21 +78,40 @@ def pick_voice(preferred: str = "") -> str:
 def clean_for_speech(text: str) -> str:
     text = _CODE_FENCE.sub(" (code omitted) ", text)
     text = _MARKDOWN.sub("", text)
+    text = _SPEECH_COMMAND.sub("", text)
     return text.strip()
 
 
-class Speaker:
+def split_sentences(text: str) -> Iterator[str]:
+    for part in _SENTENCE_END.split(text):
+        if part.strip():
+            yield part
+
+
+class QueuedSpeaker:
+    """Queue plus worker thread. Subclasses only implement `_render`."""
+
     def __init__(self, cfg: TtsConfig):
         self.cfg = cfg
-        self.voice = pick_voice(cfg.voice)
         self._queue: queue.Queue[str | None] = queue.Queue()
-        self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
         self._idle = threading.Event()
         self._idle.set()
         self._stopped = False
         self._worker = threading.Thread(target=self._run, daemon=True)
         self._worker.start()
+
+    # -- subclass hooks ----------------------------------------------------
+
+    def _render(self, text: str) -> None:
+        """Speak `text`, blocking until done."""
+        raise NotImplementedError
+
+    def _interrupt(self) -> None:
+        """Cut off whatever is sounding right now."""
+
+    def warm(self) -> None:
+        """Optional: preload models so the first reply isn't slow."""
 
     # -- worker ------------------------------------------------------------
 
@@ -92,21 +124,10 @@ class Speaker:
                 self._mark_idle()
                 continue
             try:
-                with self._lock:
-                    if self._stopped:
-                        self._mark_idle()
-                        continue
-                    self._proc = subprocess.Popen(
-                        ["say", "-v", self.voice, "-r", str(self.cfg.rate), item],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                self._proc.wait()
-            except (OSError, subprocess.SubprocessError):
-                pass
+                self._render(item)
+            except Exception:
+                pass  # a broken voice must never take down the assistant
             finally:
-                with self._lock:
-                    self._proc = None
                 self._mark_idle()
 
     def _mark_idle(self) -> None:
@@ -124,7 +145,6 @@ class Speaker:
         self._queue.put(text)
 
     def say(self, text: str) -> None:
-        """Speak `text` and block until it's finished."""
         for sentence in split_sentences(text):
             self.enqueue(sentence)
         self.wait()
@@ -152,16 +172,13 @@ class Speaker:
         return not self._idle.is_set()
 
     def stop(self) -> None:
-        """Cut off mid-sentence, e.g. when the user interrupts."""
         self._stopped = True
         while True:
             try:
                 self._queue.get_nowait()
             except queue.Empty:
                 break
-        with self._lock:
-            if self._proc and self._proc.poll() is None:
-                self._proc.terminate()
+        self._interrupt()
         self._idle.set()
 
     def shutdown(self) -> None:
@@ -169,7 +186,56 @@ class Speaker:
         self._queue.put(None)
 
 
-def split_sentences(text: str) -> Iterator[str]:
-    for part in _SENTENCE_END.split(text):
-        if part.strip():
-            yield part
+class SaySpeaker(QueuedSpeaker):
+    """macOS `say`."""
+
+    def __init__(self, cfg: TtsConfig):
+        self.voice = pick_voice(cfg.voice)
+        self.prefix = _speech_prefix(cfg)
+        self._proc: subprocess.Popen | None = None
+        super().__init__(cfg)
+
+    def _render(self, text: str) -> None:
+        with self._lock:
+            if self._stopped:
+                return
+            self._proc = subprocess.Popen(
+                ["say", "-v", self.voice, "-r", str(self.cfg.rate), self.prefix + text],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        try:
+            self._proc.wait()
+        finally:
+            with self._lock:
+                self._proc = None
+
+    def _interrupt(self) -> None:
+        with self._lock:
+            if self._proc and self._proc.poll() is None:
+                self._proc.terminate()
+
+
+def _speech_prefix(cfg: TtsConfig) -> str:
+    """Build the [[pbas]]/[[pmod]] preamble that shapes a classic voice."""
+    parts = []
+    if cfg.pitch:
+        parts.append(f"[[pbas {max(0, min(127, cfg.pitch))}]]")
+    if cfg.modulation >= 0:
+        parts.append(f"[[pmod {max(0, min(127, cfg.modulation))}]]")
+    return "".join(parts)
+
+
+def build_speaker(cfg: TtsConfig) -> QueuedSpeaker:
+    if cfg.backend == "kokoro":
+        from .kokoro import KokoroSpeaker  # heavy import, only when chosen
+
+        try:
+            return KokoroSpeaker(cfg)
+        except Exception as exc:
+            print(f"[tts] Kokoro unavailable ({exc}); falling back to `say`.")
+    return SaySpeaker(cfg)
+
+
+# Kept so older imports keep working.
+Speaker = SaySpeaker

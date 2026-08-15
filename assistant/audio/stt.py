@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..config import SttConfig
+from .vocab import collapse
 
 # Whisper hallucinates these on silence or breath noise. Drop them.
 _JUNK = {
@@ -29,9 +30,16 @@ def to_float32(audio: np.ndarray) -> np.ndarray:
 
 
 class Transcriber:
-    def __init__(self, cfg: SttConfig, model: str | None = None):
+    def __init__(
+        self,
+        cfg: SttConfig,
+        model: str | None = None,
+        prompt: str | None = None,
+    ):
         self.cfg = cfg
         self.model = model or cfg.model
+        # Vocabulary hint. Improves proper nouns, but see the echo guard below.
+        self.prompt = prompt
         self._mlx = None
 
     def _backend(self):
@@ -45,15 +53,35 @@ class Transcriber:
         """Pull weights and JIT the graph so the first real turn isn't slow."""
         self.transcribe(np.zeros(16000, dtype=np.int16))
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: np.ndarray, prompt: str | None = None) -> str:
         if audio.size == 0:
             return ""
+        hint = prompt if prompt is not None else self.prompt
         result = self._backend().transcribe(
             to_float32(audio),
             path_or_hf_repo=self.model,
             language=self.cfg.language or None,
+            initial_prompt=hint,
             fp16=True,
             condition_on_previous_text=False,
+            # Decode conservatively, then relax: a clipped or noisy command is
+            # better retried at higher temperature than returned as garbage.
+            temperature=(0.0, 0.2, 0.4, 0.6),
+            compression_ratio_threshold=2.4,
+            logprob_threshold=-1.0,
+            no_speech_threshold=0.6,
         )
         text = (result.get("text") or "").strip()
-        return "" if text.lower() in _JUNK else text
+        if text.lower() in _JUNK:
+            return ""
+        if hint and _echoes_prompt(text, hint):
+            return ""
+        return text
+
+
+def _echoes_prompt(text: str, prompt: str) -> bool:
+    """Guard against Whisper parroting the bias prompt back on near-silence."""
+    spoken = collapse(text)
+    if len(spoken) < 12:
+        return False
+    return spoken in collapse(prompt)

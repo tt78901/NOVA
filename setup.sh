@@ -16,8 +16,8 @@ export PATH="$HOME/.local/bin:$PATH"
 # 2. Python 3.12 + dependencies.
 info "Creating the virtualenv"
 uv venv --python 3.12
-uv pip install -r <(uv pip compile pyproject.toml 2>/dev/null || echo "") 2>/dev/null \
-  || uv pip install sounddevice numpy openwakeword onnxruntime mlx-whisper ollama
+uv pip install sounddevice numpy openwakeword onnxruntime mlx-whisper ollama \
+               mlx-audio "misaki[en]" soundfile
 
 # 3. Ollama, as a plain app download rather than a package manager.
 if [ ! -x "$HOME/.local/bin/ollama" ] && ! command -v ollama >/dev/null 2>&1; then

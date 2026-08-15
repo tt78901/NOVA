@@ -21,6 +21,13 @@ threshold = 0.5
 # wake word. Set to 0 to require it every time.
 follow_up_seconds = 8.0
 
+[ui]
+# The HUD: a local page showing state, live mic level and the transcript.
+# Served on localhost only, over server-sent events.
+enabled = true
+port = 7788
+open_browser = true
+
 [audio]
 input_device = ""       # empty = system default; see `nova --devices`
 samplerate = 16000
@@ -34,6 +41,9 @@ min_utterance_ms = 400
 # Swap for "mlx-community/whisper-small.en-mlx" if you want it lighter.
 model = "mlx-community/whisper-large-v3-turbo"
 language = "en"
+# Prime Whisper with the wake word, command grammar and the names of your
+# installed apps, so "open Xcode" stops coming back as "open exit code".
+bias = true
 
 [llm]
 host = "http://127.0.0.1:11434"
@@ -46,8 +56,20 @@ max_tool_iterations = 5
 
 [tts]
 enabled = true
-# Empty picks the best installed voice. For a much better one, download a
-# Premium voice: System Settings > Accessibility > Spoken Content >
-# System Voice > Manage Voices. Then set its exact name, e.g. "Ava (Premium)".
-voice = ""
+# "kokoro" — an 82M neural model on the GPU. Natural, and about thirty times
+#            faster than real time, so streaming stays instant.
+# "say"    — macOS built-in. No download, but an older generation of synthesis.
+backend = "kokoro"
+
+# Kokoro voices. First letter is accent (a = American, b = British),
+# second is gender.
+#   American female  af_heart af_nova af_bella af_sarah af_sky af_aoede af_kore
+#   American male    am_michael am_puck am_adam am_echo am_eric am_liam am_onyx
+#   British female   bf_emma bf_alice bf_isabella bf_lily
+#   British male     bm_george bm_fable bm_daniel bm_lewis
+voice = "af_heart"
+model = "mlx-community/Kokoro-82M-bf16"
+speed = 1.0             # 1.0 is natural; 1.15 is brisker
+
+# Used only when backend = "say".
 rate = 190              # words per minute
